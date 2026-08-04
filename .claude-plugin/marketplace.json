@@ -10,6 +10,8 @@
       "description": "Delegate self-contained coding grunt-work to a LOCAL model via an MCP `delegate` tool that runs a real agent loop against any OpenAI-compatible endpoint.",
       "version": "0.1.0",
       "source": "./",
+      "homepage": "https://github.com/OpenSourceWTF/local-vibes",
+      "repository": "https://github.com/OpenSourceWTF/local-vibes",
       "license": "MIT",
       "category": "productivity",
       "keywords": ["mcp", "local-llm", "subagent", "delegate", "ollama"]

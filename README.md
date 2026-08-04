@@ -33,7 +33,7 @@ things — the MCP `delegate` tool, a skill that tells Claude when to use it, an
 targeted hook — and **never edits any CLAUDE.md**:
 
 ```bash
-git clone <repo-url> ~/projects/local-vibes
+git clone https://github.com/OpenSourceWTF/local-vibes.git ~/projects/local-vibes
 ~/projects/local-vibes/scripts/install.sh          # generic default backend (Ollama)
 ```
 

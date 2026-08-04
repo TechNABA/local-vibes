@@ -3,6 +3,8 @@
   "description": "Delegate coding grunt-work to a LOCAL model — an MCP subagent that runs a real tool-calling agent loop against any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, or any local server). Backend-agnostic.",
   "version": "0.1.0",
   "author": { "name": "davidtai" },
+  "homepage": "https://github.com/OpenSourceWTF/local-vibes",
+  "repository": "https://github.com/OpenSourceWTF/local-vibes",
   "license": "MIT",
   "keywords": ["mcp", "local-llm", "subagent", "delegate", "ollama", "openai-compatible", "agent"]
 }

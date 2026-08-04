@@ -19,6 +19,11 @@
     "node": ">=18"
   },
   "license": "MIT",
+  "homepage": "https://github.com/OpenSourceWTF/local-vibes",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OpenSourceWTF/local-vibes.git"
+  },
   "keywords": [
     "mcp",
     "model-context-protocol",
