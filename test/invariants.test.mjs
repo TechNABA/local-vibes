@@ -62,13 +62,16 @@ test("semaphore runs all queued work", async () => {
   assert.deepEqual(order.sort(), [1, 2, 3]);
 });
 
-test("laneHeaders: header only when a lane is set", () => {
+test("lane maps to the standard OpenAI `user` field (primary mechanism)", () => {
+  assert.deepEqual(agent.laneUserField("sess-42"), { user: "sess-42" });
+  assert.deepEqual(agent.laneUserField(undefined), {});
+  assert.deepEqual(agent.laneUserField(""), {});
+});
+
+test("laneHeaders: opt-in, off unless LOCAL_VIBES_LANE_HEADER is set", () => {
+  assert.equal(agent.config.laneHeader, undefined); // no header by default
+  assert.equal(agent.laneHeaders("sess-42"), undefined);
   assert.equal(agent.laneHeaders(undefined), undefined);
-  assert.equal(agent.laneHeaders(""), undefined); // empty lane sends no header
-  const h = agent.laneHeaders("sess-42");
-  assert.equal(typeof h, "object");
-  assert.equal(Object.keys(h)[0], agent.config.laneHeader); // default X-MTPLX-Lane
-  assert.equal(h[agent.config.laneHeader], "sess-42");
 });
 
 test("parseExtraBody: superset passthrough, safe on garbage", () => {

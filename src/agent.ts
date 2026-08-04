@@ -50,12 +50,14 @@ export const config = {
   // e.g. {"top_k":20} or scheduler/lane/priority hints. Keeping local-vibes a
   // strict superset — generic servers see standard OpenAI, mtplx sees the extras.
   extraBody: parseExtraBody(process.env.LOCAL_VIBES_EXTRA_BODY),
-  // Sticky-session lane: when a lane id is set (env default here, or per-delegate),
-  // it is sent as this HTTP header on every request in that session so a
-  // cohort-aware server can pin the session to one lane. Header name is
-  // configurable to match the server's contract; no header is sent when unset.
+  // Sticky-session lane. When set (env default here, or per-delegate) it is sent
+  // as the STANDARD OpenAI `user` field on every request in the session — the
+  // idiomatic, portable way to carry a session/affinity id (every OpenAI-compatible
+  // server accepts it; cohort-aware servers can pin the session to one lane).
   lane: process.env.LOCAL_VIBES_LANE || undefined,
-  laneHeader: process.env.LOCAL_VIBES_LANE_HEADER || "X-MTPLX-Lane",
+  // Optional: ALSO send the lane as a custom header, for servers that route on one.
+  // Unset by default (the standard `user` field is the primary mechanism).
+  laneHeader: process.env.LOCAL_VIBES_LANE_HEADER || undefined,
 };
 
 // ── Bounded-concurrency gate (async semaphore) ───────────────────────────────
@@ -276,9 +278,14 @@ export interface RunOptions {
   lane?: string;
 }
 
-/** Header carrying the sticky-session lane, or undefined when no lane is set. */
+/** Standard OpenAI `user` field carrying the sticky-session lane (primary mechanism). */
+export function laneUserField(lane: string | undefined): { user?: string } {
+  return lane ? { user: lane } : {};
+}
+
+/** Optional custom header for the lane — only when a lane AND a header name are set. */
 export function laneHeaders(lane: string | undefined): Record<string, string> | undefined {
-  return lane ? { [config.laneHeader]: lane } : undefined;
+  return lane && config.laneHeader ? { [config.laneHeader]: lane } : undefined;
 }
 
 /**
@@ -330,6 +337,7 @@ export async function runAgent(task: string, opts: RunOptions = {}): Promise<str
           tools,
           tool_choice: "auto",
           temperature,
+          ...laneUserField(lane),
           ...config.extraBody,
         } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
         headers ? { headers } : undefined,

@@ -69,8 +69,8 @@ Add to your project's `CLAUDE.md`:
 | `LOCAL_VIBES_MODEL` | `qwen3-coder:30b` | Model name on that endpoint |
 | `LOCAL_VIBES_MAX_ITERS` | `25` | Max model↔tool round-trips per task |
 | `LOCAL_VIBES_TEMPERATURE` | `0.1` | Default sampling temperature (per-call `temperature` overrides) |
-| `LOCAL_VIBES_LANE` | _(unset)_ | Default sticky-session lane id (per-call `lane` overrides) |
-| `LOCAL_VIBES_LANE_HEADER` | `X-MTPLX-Lane` | HTTP header name the lane id is sent under |
+| `LOCAL_VIBES_LANE` | _(unset)_ | Default sticky-session id, sent as the standard OpenAI `user` field (per-call `lane` overrides) |
+| `LOCAL_VIBES_LANE_HEADER` | _(unset)_ | Optional: also send the lane under this custom header (opt-in; for header-routing servers) |
 | `LOCAL_VIBES_MAX_CONCURRENCY` | `8` | Cohort width — concurrent delegate loops offered to the backend (see below) |
 | `LOCAL_VIBES_EXTRA_BODY` | `{}` | JSON object merged into every request body — superset passthrough (see below) |
 | `LOCAL_VIBES_ALLOW_BASH` | `1` | `0` disables the `run_bash` tool entirely |
@@ -208,11 +208,13 @@ delegate(task, working_dir?=".", read_only?=false, temperature?, lane?)
 - **temperature** — per-call sampling temperature (overrides
   `LOCAL_VIBES_TEMPERATURE`). Use `0` for deterministic output and to stay
   compatible with the greedy batched-decode cohort.
-- **lane** — sticky-session lane id, sent as the `LOCAL_VIBES_LANE_HEADER`
-  header (default `X-MTPLX-Lane`). Reuse the same id across related delegations
-  so a cohort-aware server pins them to one lane; omit it for generic servers
-  (no header is sent). All requests within a single delegate loop already share
-  the lane, so a session is sticky by construction.
+- **lane** — sticky-session id, sent as the **standard OpenAI `user` field** (the
+  portable, in-spec way to carry session/affinity — every OpenAI-compatible server
+  accepts it). Reuse the same id across related delegations so a cohort-aware
+  server pins them to one lane; omit it and no `user` is sent. All requests within
+  a single delegate loop already share the lane, so a session is sticky by
+  construction. For servers that route on a header instead, set
+  `LOCAL_VIBES_LANE_HEADER` to also send it as that header.
 
 ## Safety model
 
