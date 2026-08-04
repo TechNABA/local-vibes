@@ -1,0 +1,63 @@
+// Regression tests for security-critical, model-independent invariants:
+// sandbox path confinement, the read_only tool schema, output capping, and the
+// concurrency gate. No network/model needed. Run: npm test
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as agent from "../dist/agent.js";
+
+const ROOT = "/tmp/local-vibes-test-root";
+fs.mkdirSync(ROOT, { recursive: true });
+
+test("path confinement blocks escapes", () => {
+  for (const bad of ["../../../etc/passwd", "/etc/passwd", "sub/../../escape", "..", "../sibling"]) {
+    assert.throws(() => agent.resolveInSandbox(ROOT, bad), /escapes working_dir/, `not blocked: ${bad}`);
+  }
+});
+
+test("path confinement allows in-sandbox paths", () => {
+  assert.equal(agent.resolveInSandbox(ROOT, "calc.ts"), ROOT + "/calc.ts");
+  assert.equal(agent.resolveInSandbox(ROOT, "a/b/c.ts"), ROOT + "/a/b/c.ts");
+  assert.equal(agent.resolveInSandbox(ROOT, "."), ROOT);
+});
+
+test("read_only schema excludes mutators", () => {
+  const ro = new Set(agent.toolSchemas(true).map((t) => t.function.name));
+  for (const m of ["write_file", "edit_file", "run_bash"]) assert.ok(!ro.has(m), `${m} present in read_only`);
+  for (const r of ["read_file", "list_dir", "grep", "finish"]) assert.ok(ro.has(r), `${r} missing`);
+});
+
+test("read-write schema includes mutators", () => {
+  const rw = new Set(agent.toolSchemas(false).map((t) => t.function.name));
+  assert.ok(rw.has("write_file") && rw.has("edit_file"), "mutators missing in read-write");
+});
+
+test("cap truncates oversized output", () => {
+  const big = "x".repeat(agent.config.toolResultCap + 500);
+  const out = agent.cap(big);
+  assert.ok(out.length < big.length && out.includes("truncated"));
+  assert.equal(agent.cap("short"), "short");
+});
+
+test("semaphore bounds peak concurrency", async () => {
+  const sem = new agent.Semaphore(2);
+  let active = 0;
+  let peak = 0;
+  const job = () =>
+    sem.run(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 20));
+      active--;
+    });
+  await Promise.all(Array.from({ length: 8 }, job));
+  assert.equal(peak, 2, `peak concurrency ${peak} exceeded limit of 2`);
+  assert.equal(active, 0, "tasks left active");
+});
+
+test("semaphore runs all queued work", async () => {
+  const sem = new agent.Semaphore(1);
+  const order = [];
+  await Promise.all([1, 2, 3].map((n) => sem.run(async () => { order.push(n); })));
+  assert.deepEqual(order.sort(), [1, 2, 3]);
+});

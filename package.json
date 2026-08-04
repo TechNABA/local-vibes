@@ -1,0 +1,46 @@
+{
+  "name": "local-vibes",
+  "version": "0.1.0",
+  "description": "Delegate coding grunt-work to a local model — a generic OpenAI-compatible subagent MCP server for Claude Code and other MCP hosts.",
+  "type": "module",
+  "bin": {
+    "local-vibes": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "ollama",
+    "lm-studio",
+    "vllm",
+    "openai-compatible",
+    "subagent",
+    "local-llm",
+    "agent"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js",
+    "selftest": "node dist/index.js selftest",
+    "test": "npm run build && node --test test/"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "openai": "^6.49.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^7.0.2"
+  }
+}
