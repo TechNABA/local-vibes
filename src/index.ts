@@ -18,7 +18,11 @@ async function main(): Promise<void> {
     const task = argv[1] ?? "";
     const wd = argv[2] && !argv[2].startsWith("--") ? argv[2] : ".";
     const readOnly = argv.includes("--read-only");
-    console.log(await runAgent(task, wd, readOnly));
+    const tIdx = argv.indexOf("--temperature");
+    const temperature = tIdx >= 0 ? Number(argv[tIdx + 1]) : undefined;
+    const lIdx = argv.indexOf("--lane");
+    const lane = lIdx >= 0 ? argv[lIdx + 1] : undefined;
+    console.log(await runAgent(task, { workingDir: wd, readOnly, temperature, lane }));
     return;
   }
 
@@ -39,10 +43,14 @@ async function main(): Promise<void> {
         task: z.string().describe("A complete, self-contained instruction (include acceptance criteria)."),
         working_dir: z.string().optional().describe("Sandbox root for all file/shell operations. Defaults to CWD."),
         read_only: z.boolean().optional().describe("If true, disable all writes/edits/bash (safe for search/analysis)."),
+        temperature: z.number().optional().describe("Sampling temperature for this task (overrides LOCAL_VIBES_TEMPERATURE). Use 0 for deterministic / greedy-cohort-compatible output."),
+        lane: z.string().optional().describe("Sticky-session lane id, sent as the lane header (LOCAL_VIBES_LANE_HEADER) so a cohort-aware server pins this session to one lane. Reuse the same id to keep related delegations on one lane."),
       },
     },
-    async ({ task, working_dir, read_only }) => {
-      const text = await gate.run(() => runAgent(task, working_dir ?? ".", read_only ?? false));
+    async ({ task, working_dir, read_only, temperature, lane }) => {
+      const text = await gate.run(() =>
+        runAgent(task, { workingDir: working_dir, readOnly: read_only, temperature, lane }),
+      );
       return { content: [{ type: "text" as const, text }] };
     },
   );

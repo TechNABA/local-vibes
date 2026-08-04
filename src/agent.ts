@@ -50,6 +50,12 @@ export const config = {
   // e.g. {"top_k":20} or scheduler/lane/priority hints. Keeping local-vibes a
   // strict superset — generic servers see standard OpenAI, mtplx sees the extras.
   extraBody: parseExtraBody(process.env.LOCAL_VIBES_EXTRA_BODY),
+  // Sticky-session lane: when a lane id is set (env default here, or per-delegate),
+  // it is sent as this HTTP header on every request in that session so a
+  // cohort-aware server can pin the session to one lane. Header name is
+  // configurable to match the server's contract; no header is sent when unset.
+  lane: process.env.LOCAL_VIBES_LANE || undefined,
+  laneHeader: process.env.LOCAL_VIBES_LANE_HEADER || "X-MTPLX-Lane",
 };
 
 // ── Bounded-concurrency gate (async semaphore) ───────────────────────────────
@@ -261,17 +267,36 @@ function gitChangeReport(root: string): string {
   return lines.join("\n");
 }
 
+export interface RunOptions {
+  workingDir?: string;
+  readOnly?: boolean;
+  /** Per-call sampling temperature; falls back to LOCAL_VIBES_TEMPERATURE. */
+  temperature?: number;
+  /** Sticky-session lane id; falls back to LOCAL_VIBES_LANE. Sent as a header. */
+  lane?: string;
+}
+
+/** Header carrying the sticky-session lane, or undefined when no lane is set. */
+export function laneHeaders(lane: string | undefined): Record<string, string> | undefined {
+  return lane ? { [config.laneHeader]: lane } : undefined;
+}
+
 /**
  * Run one delegate agent loop to completion. Does NOT itself limit concurrency —
  * wrap calls in `gate.run(...)` (index.ts does) to bound how many run at once.
  */
-export async function runAgent(task: string, workingDir: string, readOnly: boolean): Promise<string> {
+export async function runAgent(task: string, opts: RunOptions = {}): Promise<string> {
+  const workingDir = opts.workingDir ?? ".";
+  const readOnly = opts.readOnly ?? false;
+  const temperature = opts.temperature ?? config.temperature;
+  const lane = opts.lane ?? config.lane;
   const root = path.resolve(workingDir);
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     return `ERROR: working_dir ${JSON.stringify(workingDir)} is not a directory`;
   }
 
   const client = new OpenAI({ baseURL: config.baseURL, apiKey: config.apiKey });
+  const headers = laneHeaders(lane);
   const tools = toolSchemas(readOnly);
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM },
@@ -283,7 +308,11 @@ export async function runAgent(task: string, workingDir: string, readOnly: boole
   const touched = new Set<string>();
 
   const finalize = (summary: string, iters: number): string => {
-    const parts = [`[local-vibes finished in ${iters} iteration(s)]`, `backend: ${config.model} @ ${config.baseURL}`];
+    const laneNote = lane ? `, lane=${lane}` : "";
+    const parts = [
+      `[local-vibes finished in ${iters} iteration(s)]`,
+      `backend: ${config.model} @ ${config.baseURL} (temp=${temperature}${laneNote})`,
+    ];
     if (touched.size) parts.push("files touched: " + [...touched].sort().join(", "));
     const changes = readOnly ? "" : gitChangeReport(root);
     if (changes) parts.push("git changes:\n" + changes);
@@ -294,14 +323,17 @@ export async function runAgent(task: string, workingDir: string, readOnly: boole
   for (let i = 1; i <= config.maxIters; i++) {
     let msg: OpenAI.Chat.Completions.ChatCompletionMessage;
     try {
-      const resp = await client.chat.completions.create({
-        model: config.model,
-        messages,
-        tools,
-        tool_choice: "auto",
-        temperature: config.temperature,
-        ...config.extraBody,
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+      const resp = await client.chat.completions.create(
+        {
+          model: config.model,
+          messages,
+          tools,
+          tool_choice: "auto",
+          temperature,
+          ...config.extraBody,
+        } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+        headers ? { headers } : undefined,
+      );
       msg = resp.choices[0].message;
     } catch (e) {
       return `ERROR calling backend ${config.model} @ ${config.baseURL}: ${e}`;

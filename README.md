@@ -68,7 +68,9 @@ Add to your project's `CLAUDE.md`:
 | `LOCAL_VIBES_API_KEY` | `not-needed` | Sent as the key; local servers ignore it |
 | `LOCAL_VIBES_MODEL` | `qwen3-coder:30b` | Model name on that endpoint |
 | `LOCAL_VIBES_MAX_ITERS` | `25` | Max model↔tool round-trips per task |
-| `LOCAL_VIBES_TEMPERATURE` | `0.1` | Sampling temperature |
+| `LOCAL_VIBES_TEMPERATURE` | `0.1` | Default sampling temperature (per-call `temperature` overrides) |
+| `LOCAL_VIBES_LANE` | _(unset)_ | Default sticky-session lane id (per-call `lane` overrides) |
+| `LOCAL_VIBES_LANE_HEADER` | `X-MTPLX-Lane` | HTTP header name the lane id is sent under |
 | `LOCAL_VIBES_MAX_CONCURRENCY` | `8` | Cohort width — concurrent delegate loops offered to the backend (see below) |
 | `LOCAL_VIBES_EXTRA_BODY` | `{}` | JSON object merged into every request body — superset passthrough (see below) |
 | `LOCAL_VIBES_ALLOW_BASH` | `1` | `0` disables the `run_bash` tool entirely |
@@ -195,7 +197,7 @@ server serves the batched path.
 ## The `delegate` tool
 
 ```
-delegate(task: string, working_dir?: string = ".", read_only?: boolean = false)
+delegate(task, working_dir?=".", read_only?=false, temperature?, lane?)
 ```
 
 - **task** — one complete, self-contained instruction, ideally with acceptance
@@ -203,6 +205,14 @@ delegate(task: string, working_dir?: string = ".", read_only?: boolean = false)
 - **working_dir** — sandbox root; every file/shell operation is confined here.
 - **read_only** — `true` disables all writes/edits/bash (safe for search and
   analysis delegation).
+- **temperature** — per-call sampling temperature (overrides
+  `LOCAL_VIBES_TEMPERATURE`). Use `0` for deterministic output and to stay
+  compatible with the greedy batched-decode cohort.
+- **lane** — sticky-session lane id, sent as the `LOCAL_VIBES_LANE_HEADER`
+  header (default `X-MTPLX-Lane`). Reuse the same id across related delegations
+  so a cohort-aware server pins them to one lane; omit it for generic servers
+  (no header is sent). All requests within a single delegate loop already share
+  the lane, so a session is sticky by construction.
 
 ## Safety model
 
