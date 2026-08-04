@@ -115,20 +115,36 @@ then collapses once you oversubscribe:
   slots Ollama serves). Going higher just makes requests queue inside Ollama.
 - **vLLM / TGI** — these batch aggressively; set concurrency near the server's
   max batch size to saturate the GPU without over-queuing.
-- **Batching MLX servers (`mlx_lm.server` / MTPLX)** — aggregate throughput
-  keeps rising as you add streams while per-request speed tapers. Measured on an
-  M5 Max serving Qwen3.6-35B-A3B: aggregate decode ~122 → 290 → 384 → **490
-  tok/s** at 1 → 4 → 8 → **16** concurrent streams (int4), with per-request
-  falling ~122 → 48 → 31. For a fan-out of independent tasks, aggregate is what
-  matters — set concurrency to **8–16**. Use 8 to keep per-task latency
-  reasonable, 16 to maximize total throughput.
+- **Batching MLX servers (`mlx_lm.server` / MTPLX)** — aggregate throughput rises
+  with streams up to a ceiling, then **collapses** once *distinct* prompts thrash
+  the MoE expert-union. Measured on an M5 Max serving Qwen3.6-35B-A3B with
+  **distinct prompts** (the realistic case for independent subagents): int4
+  aggregate 103 → 210 → **274 tok/s at 8** → 150 at 12 → 190 at 16. Aggregate
+  **peaks at 8** and N=12 is ~half of N=8, so **cap concurrency at 8** — higher
+  actively hurts on this MoE. (Best-case *identical*-prompt runs scale further,
+  to ~490 @16, because they share expert routing — real delegations don't, so
+  don't tune to that number.) Crucially, the server's own `decode-concurrency` /
+  `prompt-concurrency` flags are **inert** and offer no protection: nothing on the
+  server side round-robins or admission-controls to keep you under the ceiling. So
+  the cap must be enforced **client-side** — which is exactly what this gate is for.
 - Concurrency of `1` serializes everything (safe but leaves the batch idle); the
-  default `4` suits a single Ollama host — raise it to match a batching backend.
+  default `4` suits a single Ollama host — raise it toward a batching backend's
+  ceiling (e.g. `8` for the MLX MoE above), but not past it.
 
 To actually use N server-side streams you need N concurrent `delegate` calls in
 flight: a single delegate loop is sequential (each step waits for the previous
 tool result), so the *host* must fan out that many delegations **and**
 `LOCAL_VIBES_MAX_CONCURRENCY` must be ≥ N.
+
+### Named lanes (gateway routing)
+
+If a router/gateway maps model names to different backends — e.g. a LiteLLM proxy
+exposing `qwen` (a thinking model) and `qwen-instruct` (a fast non-thinking model
+on a separate port) — point `LOCAL_VIBES_BASE_URL` at the gateway and set
+`LOCAL_VIBES_MODEL` to the lane you want; **the model field is the lane selector.**
+Route grunt delegations to the fast non-thinking lane. Note: lanes that share one
+GPU also share that ~8-stream ceiling — naming a lane is for *routing* (task type,
+thinking vs not), not for multiplying total concurrency.
 
 **File safety under concurrency:** the inner tools are synchronous, so Node's
 single thread makes each file operation atomic — concurrent subagents can never
