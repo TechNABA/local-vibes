@@ -74,6 +74,33 @@ Add to your project's `CLAUDE.md`:
 | `LOCAL_VIBES_BASH_TIMEOUT` | `120` | Per-command timeout (seconds) |
 | `LOCAL_VIBES_TOOL_RESULT_CAP` | `12000` | Max chars of any tool result fed back to the model |
 
+## Model selection
+
+The `model` field is **required by the OpenAI `/v1/chat/completions` protocol** —
+every request must carry one, so `local-vibes` always sends `LOCAL_VIBES_MODEL`.
+But the value is just a **routing key**, not a client-side choice of weights:
+
+- On a **multi-model host** (Ollama with several tags, a router), it selects
+  which model answers — e.g. `qwen3-coder:30b`.
+- On a **pinned single-model server** (`mlx_lm.server`, llama.cpp server, a vLLM
+  serving one model), set it to whatever stable name that server exposes and
+  forget it. If the server publishes an alias like **`default_model`** and swaps
+  the real weights behind it, point `LOCAL_VIBES_MODEL` at the alias once — the
+  client never needs to change when you swap the underlying model.
+
+### Example: a local MLX server with a stable alias + high concurrency
+
+```bash
+claude mcp add local-vibes \
+  -e LOCAL_VIBES_BASE_URL=http://127.0.0.1:8080/v1 \
+  -e LOCAL_VIBES_MODEL=default_model \
+  -e LOCAL_VIBES_MAX_CONCURRENCY=8 \
+  -- npx -y local-vibes
+```
+
+(Point at the OpenAI chat endpoint directly, not an Anthropic/Responses
+translation gateway — `local-vibes` speaks `/v1/chat/completions`.)
+
 ## Concurrency & scaling
 
 The host can fan out many `delegate` calls at once. `local-vibes` runs them
@@ -88,8 +115,20 @@ then collapses once you oversubscribe:
   slots Ollama serves). Going higher just makes requests queue inside Ollama.
 - **vLLM / TGI** — these batch aggressively; set concurrency near the server's
   max batch size to saturate the GPU without over-queuing.
-- Concurrency of `1` serializes everything (safe but leaves the batch idle);
-  the default `4` is a reasonable middle ground for a single Ollama host.
+- **Batching MLX servers (`mlx_lm.server` / MTPLX)** — aggregate throughput
+  keeps rising as you add streams while per-request speed tapers. Measured on an
+  M5 Max serving Qwen3.6-35B-A3B: aggregate decode ~122 → 290 → 384 → **490
+  tok/s** at 1 → 4 → 8 → **16** concurrent streams (int4), with per-request
+  falling ~122 → 48 → 31. For a fan-out of independent tasks, aggregate is what
+  matters — set concurrency to **8–16**. Use 8 to keep per-task latency
+  reasonable, 16 to maximize total throughput.
+- Concurrency of `1` serializes everything (safe but leaves the batch idle); the
+  default `4` suits a single Ollama host — raise it to match a batching backend.
+
+To actually use N server-side streams you need N concurrent `delegate` calls in
+flight: a single delegate loop is sequential (each step waits for the previous
+tool result), so the *host* must fan out that many delegations **and**
+`LOCAL_VIBES_MAX_CONCURRENCY` must be ≥ N.
 
 **File safety under concurrency:** the inner tools are synchronous, so Node's
 single thread makes each file operation atomic — concurrent subagents can never
