@@ -18,6 +18,17 @@ function intEnv(name: string, def: number): number {
   return Number.isFinite(v) ? v : def;
 }
 
+/** Parse a JSON object from env; returns {} on missing/invalid/non-object. */
+export function parseExtraBody(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export const config = {
   baseURL: process.env.LOCAL_VIBES_BASE_URL ?? "http://localhost:11434/v1",
   apiKey: process.env.LOCAL_VIBES_API_KEY ?? "not-needed", // local servers ignore it
@@ -27,10 +38,18 @@ export const config = {
   allowBash: (process.env.LOCAL_VIBES_ALLOW_BASH ?? "1") === "1",
   bashTimeout: intEnv("LOCAL_VIBES_BASH_TIMEOUT", 120), // seconds
   toolResultCap: intEnv("LOCAL_VIBES_TOOL_RESULT_CAP", 12000), // chars
-  // Max concurrent delegate loops in flight. Tune to the backend's parallel
-  // width (Ollama OLLAMA_NUM_PARALLEL, vLLM max batch) so fanned-out subagents
-  // saturate the batched/lockstep decode without oversubscribing it.
-  maxConcurrency: intEnv("LOCAL_VIBES_MAX_CONCURRENCY", 4),
+  // Cohort width: how many delegate loops run at once, i.e. how many concurrent
+  // requests are offered to the backend. Set it to the server's cohort width so a
+  // batching server amortizes one weight read across the whole cohort — mtplx
+  // THROUGHPUT preset = 8 (the ×2.2 net-ragged amortization point); Ollama
+  // OLLAMA_NUM_PARALLEL; vLLM max batch. A batching server admission-queues the
+  // overflow, so this is a target, not a hard safety cap.
+  maxConcurrency: intEnv("LOCAL_VIBES_MAX_CONCURRENCY", 8),
+  // Extra request-body fields merged into every chat.completions call. Empty by
+  // default → pure OpenAI. mtplx's server accepts arbitrary extras (extra="allow"):
+  // e.g. {"top_k":20} or scheduler/lane/priority hints. Keeping local-vibes a
+  // strict superset — generic servers see standard OpenAI, mtplx sees the extras.
+  extraBody: parseExtraBody(process.env.LOCAL_VIBES_EXTRA_BODY),
 };
 
 // ── Bounded-concurrency gate (async semaphore) ───────────────────────────────
@@ -281,7 +300,8 @@ export async function runAgent(task: string, workingDir: string, readOnly: boole
         tools,
         tool_choice: "auto",
         temperature: config.temperature,
-      });
+        ...config.extraBody,
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
       msg = resp.choices[0].message;
     } catch (e) {
       return `ERROR calling backend ${config.model} @ ${config.baseURL}: ${e}`;

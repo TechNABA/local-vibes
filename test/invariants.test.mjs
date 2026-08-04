@@ -61,3 +61,12 @@ test("semaphore runs all queued work", async () => {
   await Promise.all([1, 2, 3].map((n) => sem.run(async () => { order.push(n); })));
   assert.deepEqual(order.sort(), [1, 2, 3]);
 });
+
+test("parseExtraBody: superset passthrough, safe on garbage", () => {
+  assert.deepEqual(agent.parseExtraBody('{"top_k":20,"lane":"agent"}'), { top_k: 20, lane: "agent" });
+  assert.deepEqual(agent.parseExtraBody(undefined), {}); // pure OpenAI by default
+  assert.deepEqual(agent.parseExtraBody(""), {});
+  assert.deepEqual(agent.parseExtraBody("not json"), {}); // never throws
+  assert.deepEqual(agent.parseExtraBody("[1,2,3]"), {}); // arrays rejected, must be an object
+  assert.deepEqual(agent.parseExtraBody("42"), {});
+});

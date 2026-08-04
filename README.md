@@ -69,7 +69,8 @@ Add to your project's `CLAUDE.md`:
 | `LOCAL_VIBES_MODEL` | `qwen3-coder:30b` | Model name on that endpoint |
 | `LOCAL_VIBES_MAX_ITERS` | `25` | Max model↔tool round-trips per task |
 | `LOCAL_VIBES_TEMPERATURE` | `0.1` | Sampling temperature |
-| `LOCAL_VIBES_MAX_CONCURRENCY` | `4` | Max delegate loops in flight at once (see below) |
+| `LOCAL_VIBES_MAX_CONCURRENCY` | `8` | Cohort width — concurrent delegate loops offered to the backend (see below) |
+| `LOCAL_VIBES_EXTRA_BODY` | `{}` | JSON object merged into every request body — superset passthrough (see below) |
 | `LOCAL_VIBES_ALLOW_BASH` | `1` | `0` disables the `run_bash` tool entirely |
 | `LOCAL_VIBES_BASH_TIMEOUT` | `120` | Per-command timeout (seconds) |
 | `LOCAL_VIBES_TOOL_RESULT_CAP` | `12000` | Max chars of any tool result fed back to the model |
@@ -153,6 +154,43 @@ race to guard against. What the gate does *not* prevent is two subagents making
 *logically* conflicting edits to the same files; for independent parallel tasks,
 give each its own `working_dir` (or a separate `git worktree`) and merge the
 results.
+
+## Strict superset & mtplx concurrency kernels
+
+local-vibes is a **strict superset** OpenAI client: by default it sends only
+standard `/v1/chat/completions` fields, so it works against any OpenAI-compatible
+server (Ollama, LM Studio, vLLM). But an [mtplx](https://github.com/youssofal/mtplx)
+server accepts arbitrary extra request fields (`extra="allow"`), so you can carry
+mtplx-specific hints without breaking portability, via `LOCAL_VIBES_EXTRA_BODY`:
+
+```bash
+claude mcp add local-vibes \
+  -e LOCAL_VIBES_BASE_URL=http://127.0.0.1:8080/v1 \
+  -e LOCAL_VIBES_MODEL=mtplx-qwen36-27b-optimized-speed-v2 \
+  -e LOCAL_VIBES_MAX_CONCURRENCY=8 \
+  -e LOCAL_VIBES_EXTRA_BODY='{"top_k":20}' \
+  -- npx -y local-vibes
+```
+
+The object is merged into every request body verbatim; a generic server that
+doesn't understand a field never receives one (empty default) or ignores it.
+
+**How the concurrency kernel engages.** mtplx's cross-request batched decode runs
+`B` concurrent streams as one forward, amortizing a single dense-weight read across
+the cohort (≈×2.2 net-ragged at B=8) and committing byte-identical greedy tokens
+per stream. local-vibes feeds it the way it needs to be fed: it fires up to
+`LOCAL_VIBES_MAX_CONCURRENCY` concurrent, independently-sequential delegate loops,
+so a cohorting server can batch them. Set the cohort width to 8 (the mtplx
+THROUGHPUT-preset width).
+
+Two things gate whether the cohort actually forms, and both are **server-side**:
+the server must run a batching preset (`--scheduler-mode cooperative
+--batching-preset throughput`, not the default `serial`/`latency`), and its serving
+path must route through the batched-decode kernel (as of mtplx 2.5.2 that kernel is
+Phase-1 and not yet wired into the OpenAI serving path — the paged KV cache raises
+at batch>1). Until then, concurrent requests are admitted and **queued** serially,
+which is safe and correct — local-vibes is already shaped to cohort the moment the
+server serves the batched path.
 
 ## The `delegate` tool
 
