@@ -38,12 +38,14 @@ export const config = {
   allowBash: (process.env.LOCAL_VIBES_ALLOW_BASH ?? "1") === "1",
   bashTimeout: intEnv("LOCAL_VIBES_BASH_TIMEOUT", 120), // seconds
   toolResultCap: intEnv("LOCAL_VIBES_TOOL_RESULT_CAP", 12000), // chars
-  // Cohort width: how many delegate loops run at once, i.e. how many concurrent
-  // requests are offered to the backend. Set it to the server's cohort width so a
-  // batching server amortizes one weight read across the whole cohort — mtplx
-  // THROUGHPUT preset = 8 (the ×2.2 net-ragged amortization point); Ollama
-  // OLLAMA_NUM_PARALLEL; vLLM max batch. A batching server admission-queues the
-  // overflow, so this is a target, not a hard safety cap.
+  // Cohort width: how many delegate loops run at once = how many concurrent
+  // requests are offered to the backend. On mtplx (PR #200) this picks the lane:
+  //   8  → the spec lane's ceiling (8 req × 2 draft/verify rows = the 16-row M1–M16
+  //        kernel budget) — keeps MTP speculation AND concurrency. Default.
+  //   16 → the AR lane's ceiling (1 row/req, no MTP) — max aggregate throughput.
+  // Both run on the tuned M1–M16 kernels; >16 rows falls back to stock MLX.
+  // (Ollama: OLLAMA_NUM_PARALLEL; vLLM: max batch.) A batching server
+  // admission-queues the overflow, so this is a target, not a hard safety cap.
   maxConcurrency: intEnv("LOCAL_VIBES_MAX_CONCURRENCY", 8),
   // Extra request-body fields merged into every chat.completions call. Empty by
   // default → pure OpenAI. mtplx's server accepts arbitrary extras (extra="allow"):

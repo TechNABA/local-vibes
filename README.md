@@ -111,28 +111,32 @@ through a **bounded-concurrency gate** so they don't overwhelm a single backend:
 up to `LOCAL_VIBES_MAX_CONCURRENCY` loops run simultaneously and the rest queue.
 
 **Tune it to your backend's parallel width.** Local inference servers process
-requests in batched / lockstep decode — throughput scales as you fill the batch,
-then collapses once you oversubscribe:
+requests in batched / lockstep decode. How far throughput scales depends on the
+server: a naive one degrades once you oversubscribe its slots, while a proper
+cohorting driver (mtplx PR #200) keeps climbing far past 16. Set concurrency to
+what your backend actually rewards:
 
 - **Ollama** — set concurrency to `OLLAMA_NUM_PARALLEL` (the number of parallel
   slots Ollama serves). Going higher just makes requests queue inside Ollama.
 - **vLLM / TGI** — these batch aggressively; set concurrency near the server's
   max batch size to saturate the GPU without over-queuing.
 - **Batching MLX servers (`mlx_lm.server` / MTPLX)** — aggregate throughput rises
-  with streams up to a ceiling, then **collapses** once *distinct* prompts thrash
-  the MoE expert-union. Measured on an M5 Max serving Qwen3.6-35B-A3B with
-  **distinct prompts** (the realistic case for independent subagents): int4
-  aggregate 103 → 210 → **274 tok/s at 8** → 150 at 12 → 190 at 16. Aggregate
-  **peaks at 8** and N=12 is ~half of N=8, so **cap concurrency at 8** — higher
-  actively hurts on this MoE. (Best-case *identical*-prompt runs scale further,
-  to ~490 @16, because they share expert routing — real delegations don't, so
-  don't tune to that number.) Crucially, the server's own `decode-concurrency` /
-  `prompt-concurrency` flags are **inert** and offer no protection: nothing on the
-  server side round-robins or admission-controls to keep you under the ceiling. So
-  the cap must be enforced **client-side** — which is exactly what this gate is for.
+  with streams — and on a real cohorting server (mtplx, PR #200) it keeps rising
+  well past 16, not collapsing. mtplx's own clean sweep on Qwen3.6-35B-A3B (each
+  batch at its own cohort, code prompts) reads: aggregate **374 → 479 → 563 → 612
+  → … → 813 tok/s** at B = 8 → 16 → 24 → 32 → … → 256, with ms/token bottoming
+  out around B≈96–128. So there is **no distinct-prompt collapse** with the PR #200
+  batched driver — my earlier "peaks at 8" was a stale stock-`mlx_lm.server`
+  number. On mtplx the two useful operating points are the **lanes**:
+  - **8 = the spec lane** (MTP draft+verify, 2 rows/request → the 16-row M1–M16
+    kernel budget): keeps speculation *and* concurrency. The default.
+  - **16 = the AR lane** (1 row/request, no MTP): higher aggregate throughput.
+  Both run on the tuned M1–M16 Metal kernels (row-owned MoE router, NAX verify,
+  combine tail, moepack, GDN, ragged attention); above 16 rows the forward drops
+  to stock MLX kernels (any width, slightly slower/token).
 - Concurrency of `1` serializes everything (safe but leaves the batch idle); the
-  default `4` suits a single Ollama host — raise it toward a batching backend's
-  ceiling (e.g. `8` for the MLX MoE above), but not past it.
+  default `8` fills the spec/MTP cohort. Raise to `16` for the AR lane, or higher
+  on a server whose curve keeps climbing (mtplx does, to ~256).
 
 To actually use N server-side streams you need N concurrent `delegate` calls in
 flight: a single delegate loop is sequential (each step waits for the previous
