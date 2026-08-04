@@ -8,7 +8,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    ".claude-plugin",
+    "skills",
+    "hooks",
+    "scripts",
+    "examples"
   ],
   "engines": {
     "node": ">=18"

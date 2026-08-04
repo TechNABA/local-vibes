@@ -25,7 +25,36 @@ Claude Code (primary, on your subscription)
         └─ returns: summary + git change report of what the subagent did
 ```
 
-## Install
+## Install as a Claude Code plugin (recommended, self-installing)
+
+This repo is a self-installing Claude Code plugin. Point Claude at it and say
+"install local-vibes", or run the script yourself. It registers three removable
+things — the MCP `delegate` tool, a skill that tells Claude when to use it, and a
+targeted hook — and **never edits any CLAUDE.md**:
+
+```bash
+git clone <repo-url> ~/projects/local-vibes
+~/projects/local-vibes/scripts/install.sh          # generic default backend (Ollama)
+```
+
+Point it at any OpenAI-compatible server (it is **not** tied to any one backend):
+
+```bash
+LOCAL_VIBES_BASE_URL=http://127.0.0.1:8080/v1 \
+LOCAL_VIBES_MODEL=my-local-model \
+  ~/projects/local-vibes/scripts/install.sh
+```
+
+The `delegate` tool and the skill load in your **next** `claude` session. To
+remove everything (MCP server + plugin + marketplace), in one command:
+
+```bash
+~/projects/local-vibes/scripts/uninstall.sh
+```
+
+Requires **Node ≥ 18** and the `claude` CLI on `PATH`.
+
+## Install (manual MCP, no plugin)
 
 Requires **Node ≥ 18** and an OpenAI-compatible endpoint serving a
 **tool-calling capable** model (e.g. Ollama: `ollama serve` + `ollama pull
