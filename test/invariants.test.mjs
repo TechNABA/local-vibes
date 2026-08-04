@@ -62,6 +62,12 @@ test("semaphore runs all queued work", async () => {
   assert.deepEqual(order.sort(), [1, 2, 3]);
 });
 
+test("default cohort width is 8 (the mtplx spec/MTP lane)", () => {
+  // With LOCAL_VIBES_MAX_CONCURRENCY unset, the default must be 8 — the spec
+  // lane's ceiling (8 req x 2 draft/verify rows = the 16-row M1-M16 kernel budget).
+  assert.equal(agent.config.maxConcurrency, 8);
+});
+
 test("lane maps to the standard OpenAI `user` field (primary mechanism)", () => {
   assert.deepEqual(agent.laneUserField("sess-42"), { user: "sess-42" });
   assert.deepEqual(agent.laneUserField(undefined), {});
