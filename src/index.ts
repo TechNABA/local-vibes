@@ -32,13 +32,11 @@ async function main(): Promise<void> {
     "delegate",
     {
       description:
-        "Delegate a self-contained coding or research task to a LOCAL model running in its " +
-        "own sandboxed agent loop. USE PROACTIVELY to offload grunt work — codebase searches, " +
-        "boilerplate, mechanical multi-file edits, test scaffolding — instead of doing it inline. " +
-        "The subagent reads/edits files and runs shell commands confined to `working_dir`, and " +
-        "returns a summary plus a git change report. Give it ONE clear, self-contained task with " +
-        "enough context to act without follow-up questions. Safe to call multiple times " +
-        "concurrently; in-flight runs are bounded by LOCAL_VIBES_MAX_CONCURRENCY.",
+        "Delegate a self-contained coding task to a LOCAL model running in its own agent loop. " +
+        "Use only when the CLAUDE.md rules allow it for the task at hand. The subagent reads and " +
+        "edits files confined to `working_dir` and returns a summary plus a git change report; it " +
+        "cannot run commands or tests, so re-run the verification yourself and check the diff. Give " +
+        "it ONE clear task with acceptance criteria. Call it once at a time, not in parallel.",
       inputSchema: {
         task: z.string().describe("A complete, self-contained instruction (include acceptance criteria)."),
         working_dir: z.string().optional().describe("Sandbox root for all file/shell operations. Defaults to CWD."),
