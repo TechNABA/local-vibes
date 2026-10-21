@@ -131,3 +131,17 @@ test("run_bash timeout kills the whole process tree", async () => {
     agent.config.bashTimeout = saved.timeout;
   }
 });
+
+test("edit_file matches LF old_string in a CRLF file and keeps CRLF endings", () => {
+  const f = path.join(ROOT, "crlf.sh");
+  fs.writeFileSync(f, "a=1\r\nb=2\r\nc=3\r\n");
+  assert.equal(agent.editFile(ROOT, "crlf.sh", "a=1\nb=2", "a=1\nb=20\nb2=x"), "edited crlf.sh");
+  assert.equal(fs.readFileSync(f, "utf8"), "a=1\r\nb=20\r\nb2=x\r\nc=3\r\n");
+});
+
+test("edit_file keeps $ sequences in new_string literal", () => {
+  const f = path.join(ROOT, "dollar.sh");
+  fs.writeFileSync(f, "x\nTAIL\n");
+  agent.editFile(ROOT, "dollar.sh", "x", "IFS=$'\t' read -r a; echo \"$&\"");
+  assert.equal(fs.readFileSync(f, "utf8"), "IFS=$'\t' read -r a; echo \"$&\"\nTAIL\n");
+});

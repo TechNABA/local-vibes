@@ -130,13 +130,19 @@ function writeFile(root: string, p: string, content: string): string {
   return `wrote ${content.length} chars to ${p}`;
 }
 
-function editFile(root: string, p: string, oldStr: string, newStr: string): string {
+export function editFile(root: string, p: string, oldStr: string, newStr: string): string {
   const full = resolveInSandbox(root, p);
   const text = fs.readFileSync(full, "utf8");
+  // Models write "\n"; a CRLF file (e.g. a Windows checkout) would never match. Use the file's endings.
+  if (text.includes("\r\n") && !oldStr.includes("\r")) {
+    oldStr = oldStr.replace(/\n/g, "\r\n");
+    newStr = newStr.replace(/\r?\n/g, "\r\n");
+  }
   const count = text.split(oldStr).length - 1;
   if (count === 0) return `ERROR: old_string not found in ${p}`;
   if (count > 1) return `ERROR: old_string occurs ${count}× in ${p}; make it unique`;
-  fs.writeFileSync(full, text.replace(oldStr, newStr));
+  // A replacer function keeps "$'", "$&"... in newStr literal (common in shell code).
+  fs.writeFileSync(full, text.replace(oldStr, () => newStr));
   return `edited ${p}`;
 }
 
