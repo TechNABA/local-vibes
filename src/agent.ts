@@ -7,7 +7,7 @@
 import OpenAI from "openai";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ChatTool = OpenAI.Chat.Completions.ChatCompletionTool;
@@ -184,24 +184,51 @@ function grep(root: string, pattern: string, p = "."): string {
   return hits.length ? cap(hits.join("\n")) : "(no matches)";
 }
 
-function runBash(root: string, command: string): string {
-  if (!config.allowBash) return "ERROR: bash is disabled (LOCAL_VIBES_ALLOW_BASH=0)";
-  const r = spawnSync(config.bashPath, ["-c", command], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: config.bashTimeout * 1000,
-    maxBuffer: 8 * 1024 * 1024,
-  });
-  if (r.error && (r.error as { code?: string }).code === "ETIMEDOUT") {
-    return `ERROR: command timed out after ${config.bashTimeout}s`;
+/** Kill a process and everything it started (killing only the shell leaves its children running). */
+function killTree(pid: number): void {
+  try {
+    if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    else process.kill(-pid, "SIGKILL"); // detached → the child leads its own process group
+  } catch {
+    // already gone
   }
-  const out = (r.stdout ?? "") + (r.stderr ? `\n[stderr]\n${r.stderr}` : "");
-  return cap(`[exit ${r.status}]\n${out}`.trimEnd());
+}
+
+export function runBash(root: string, command: string): Promise<string> {
+  if (!config.allowBash) return Promise.resolve("ERROR: bash is disabled (LOCAL_VIBES_ALLOW_BASH=0)");
+  return new Promise((resolve) => {
+    const child = spawn(config.bashPath, ["-c", command], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      windowsHide: true,
+    });
+    const limit = 8 * 1024 * 1024;
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => { if (stdout.length < limit) stdout += d; });
+    child.stderr.on("data", (d) => { if (stderr.length < limit) stderr += d; });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid) killTree(child.pid);
+    }, config.bashTimeout * 1000);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve(`ERROR: cannot start shell ${JSON.stringify(config.bashPath)} (set LOCAL_VIBES_BASH): ${e.message}`);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) return resolve(`ERROR: command timed out after ${config.bashTimeout}s (process tree killed)`);
+      const out = stdout + (stderr ? `\n[stderr]\n${stderr}` : "");
+      resolve(cap(`[exit ${code}]\n${out}`.trimEnd()));
+    });
+  });
 }
 
 const MUTATORS = new Set(["write_file", "edit_file", "run_bash"]);
 
-function dispatch(name: string, root: string, args: Record<string, string>): string {
+async function dispatch(name: string, root: string, args: Record<string, string>): Promise<string> {
   switch (name) {
     case "read_file":
       return readFile(root, args.path);
@@ -376,7 +403,7 @@ export async function runAgent(task: string, opts: RunOptions = {}): Promise<str
       let result: string;
       try {
         if (readOnly && MUTATORS.has(name)) result = `ERROR: ${name} is disabled in read_only mode`;
-        else result = dispatch(name, root, args);
+        else result = await dispatch(name, root, args);
         if (MUTATORS.has(name) && !result.startsWith("ERROR") && args.path) touched.add(args.path);
       } catch (e) {
         result = `ERROR in ${name}: ${e}`;

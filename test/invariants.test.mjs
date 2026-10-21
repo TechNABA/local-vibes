@@ -1,6 +1,6 @@
 // Regression tests for security-critical, model-independent invariants:
 // sandbox path confinement, the read_only tool schema, output capping, and the
-// concurrency gate. No network/model needed. Run: npm test
+// concurrency gate, run_bash errors and timeouts. No network/model needed. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -88,4 +88,46 @@ test("parseExtraBody: superset passthrough, safe on garbage", () => {
   assert.deepEqual(agent.parseExtraBody("not json"), {}); // never throws
   assert.deepEqual(agent.parseExtraBody("[1,2,3]"), {}); // arrays rejected, must be an object
   assert.deepEqual(agent.parseExtraBody("42"), {});
+});
+
+// run_bash: on Windows bash is usually not on PATH, so point the tests at Git Bash.
+const SHELL = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
+
+test("run_bash reports a missing shell instead of an empty result", async () => {
+  const saved = agent.config.bashPath;
+  agent.config.bashPath = path.join(ROOT, "no-such-shell");
+  try {
+    const out = await agent.runBash(ROOT, "echo hi");
+    assert.match(out, /^ERROR: cannot start shell/);
+  } finally {
+    agent.config.bashPath = saved;
+  }
+});
+
+test("run_bash returns exit code and output", async () => {
+  const saved = agent.config.bashPath;
+  agent.config.bashPath = SHELL;
+  try {
+    assert.equal(await agent.runBash(ROOT, "echo hi; exit 3"), "[exit 3]\nhi");
+  } finally {
+    agent.config.bashPath = saved;
+  }
+});
+
+test("run_bash timeout kills the whole process tree", async () => {
+  const saved = { path: agent.config.bashPath, timeout: agent.config.bashTimeout };
+  agent.config.bashPath = SHELL;
+  agent.config.bashTimeout = 1;
+  const marker = path.join(ROOT, "orphan-marker");
+  fs.rmSync(marker, { force: true });
+  try {
+    // A child process (node) that would write the marker after 3 s if it survived the shell.
+    const cmd = `node -e "setTimeout(() => require('fs').writeFileSync('orphan-marker', 'x'), 3000)"`;
+    assert.match(await agent.runBash(ROOT, cmd), /timed out/);
+    await new Promise((r) => setTimeout(r, 4000));
+    assert.ok(!fs.existsSync(marker), "child process outlived the timeout");
+  } finally {
+    agent.config.bashPath = saved.path;
+    agent.config.bashTimeout = saved.timeout;
+  }
 });
