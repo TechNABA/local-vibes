@@ -24,13 +24,22 @@ jobs:
           cmp=$(gh api "repos/$GITHUB_REPOSITORY/compare/vs-main...OpenSourceWTF:main")
           ahead=$(jq '.ahead_by' <<<"$cmp")
           echo "upstream main is $ahead commit(s) ahead of vs-main"
-          [ "$ahead" -eq 0 ] && exit 0
+          num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ "$ahead" -eq 0 ]; then
+            # Caught up (vs-main rebased): close a leftover issue so it does not linger with a stale list.
+            [ -n "$num" ] && gh issue close "$num" --repo "$GITHUB_REPOSITORY" --comment "vs-main is up to date with upstream main."
+            exit 0
+          fi
           body=$(jq -r '"Upstream main has \(.ahead_by) commit(s) not in vs-main:\n\n" +
             ([.commits[] | "- \(.sha[0:7]) \(.commit.message | split("\n")[0])"] | join("\n")) +
             "\n\nReview them, then: git fetch upstream && git rebase upstream/main (on vs-main), npx tsc, selftest, git push --force-with-lease."' <<<"$cmp")
-          num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$num" ]; then
-            gh issue edit "$num" --repo "$GITHUB_REPOSITORY" --body "$body"
+            # Editing an issue sends no notification; a comment does. Comment only when the list changed.
+            old=$(gh issue view "$num" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            if [ "$old" != "$body" ]; then
+              gh issue edit "$num" --repo "$GITHUB_REPOSITORY" --body "$body"
+              gh issue comment "$num" --repo "$GITHUB_REPOSITORY" --body "$body"
+            fi
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"
           fi
