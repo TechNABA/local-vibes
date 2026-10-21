@@ -36,6 +36,7 @@ export const config = {
   maxIters: intEnv("LOCAL_VIBES_MAX_ITERS", 25),
   temperature: Number.parseFloat(process.env.LOCAL_VIBES_TEMPERATURE ?? "0.1"),
   allowBash: (process.env.LOCAL_VIBES_ALLOW_BASH ?? "1") === "1",
+  bashPath: process.env.LOCAL_VIBES_BASH || "bash", // e.g. Git Bash on Windows, where bash is not on PATH
   bashTimeout: intEnv("LOCAL_VIBES_BASH_TIMEOUT", 120), // seconds
   toolResultCap: intEnv("LOCAL_VIBES_TOOL_RESULT_CAP", 12000), // chars
   // Cohort width: how many delegate loops run at once = how many concurrent
@@ -185,7 +186,7 @@ function grep(root: string, pattern: string, p = "."): string {
 
 function runBash(root: string, command: string): string {
   if (!config.allowBash) return "ERROR: bash is disabled (LOCAL_VIBES_ALLOW_BASH=0)";
-  const r = spawnSync("bash", ["-c", command], {
+  const r = spawnSync(config.bashPath, ["-c", command], {
     cwd: root,
     encoding: "utf8",
     timeout: config.bashTimeout * 1000,

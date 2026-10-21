@@ -34,9 +34,10 @@ async function main(): Promise<void> {
       description:
         "Delegate a self-contained coding task to a LOCAL model running in its own agent loop. " +
         "Use only when the CLAUDE.md rules allow it for the task at hand. The subagent reads and " +
-        "edits files confined to `working_dir` and returns a summary plus a git change report; it " +
-        "cannot run commands or tests, so re-run the verification yourself and check the diff. Give " +
-        "it ONE clear task with acceptance criteria. Call it once at a time, not in parallel.",
+        "edits files confined to `working_dir`, can run shell commands there (not sandboxed), and " +
+        "returns a summary plus a git change report. Its summary is not verification: re-run the " +
+        "verification yourself and check the diff. Give it ONE clear task with acceptance criteria " +
+        "and the command that verifies it. Call it once at a time, not in parallel.",
       inputSchema: {
         task: z.string().describe("A complete, self-contained instruction (include acceptance criteria)."),
         working_dir: z.string().optional().describe("Sandbox root for all file/shell operations. Defaults to CWD."),
