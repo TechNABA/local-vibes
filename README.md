@@ -21,7 +21,7 @@ Claude Code (primary, on your subscription)
         └─ bounded-concurrency gate (LOCAL_VIBES_MAX_CONCURRENCY)
              └─ agent loop on your local model:
                   read_file · list_dir · grep · write_file · edit_file · run_bash · finish
-                  (file/shell ops sandboxed to working_dir; bounded by max iters)
+                  (file ops confined to working_dir, shell starts there but is not sandboxed; bounded by max iters)
         └─ returns: summary + git change report of what the subagent did
 ```
 
@@ -235,7 +235,7 @@ delegate(task, working_dir?=".", read_only?=false, temperature?, lane?)
 
 - **task** — one complete, self-contained instruction, ideally with acceptance
   criteria ("…and run the test to confirm it exits 0").
-- **working_dir** — sandbox root; every file/shell operation is confined here.
+- **working_dir** — file operations are confined here and shell commands start here; the shell itself is not sandboxed.
 - **read_only** — `true` disables all writes/edits/bash (safe for search and
   analysis delegation).
 - **temperature** — per-call sampling temperature (overrides

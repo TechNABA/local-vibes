@@ -40,7 +40,7 @@ async function main(): Promise<void> {
         "and the command that verifies it. Call it once at a time, not in parallel.",
       inputSchema: {
         task: z.string().describe("A complete, self-contained instruction (include acceptance criteria)."),
-        working_dir: z.string().optional().describe("Sandbox root for all file/shell operations. Defaults to CWD."),
+        working_dir: z.string().optional().describe("Root that file operations are confined to and where shell commands start (the shell itself is not confined). Defaults to CWD."),
         read_only: z.boolean().optional().describe("If true, disable all writes/edits/bash (safe for search/analysis)."),
         temperature: z.number().optional().describe("Sampling temperature for this task (overrides LOCAL_VIBES_TEMPERATURE). Use 0 for deterministic / greedy-cohort-compatible output."),
         lane: z.string().optional().describe("Sticky-session lane id, sent as the lane header (LOCAL_VIBES_LANE_HEADER) so a cohort-aware server pins this session to one lane. Reuse the same id to keep related delegations on one lane."),
